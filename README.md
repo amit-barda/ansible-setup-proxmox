@@ -59,7 +59,7 @@ proxmox_api_user: "root@pam"
 proxmox_api_password: "YOUR_PASSWORD"
 proxmox_node: "pve"
 template_name: "ubuntu-2204-cloud"
-template_vmid: 9000
+template_vmid: "YOUR_TEMPLATE"
 gitlab_root_password: "YourGitLabRootPass"
 developer_password: "YourDevPass"
 gitlab_runner_registration_token: ""
