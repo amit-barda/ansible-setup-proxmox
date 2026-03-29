@@ -1,0 +1,317 @@
+---
+- name: Fail if vm_id is missing
+  ansible.builtin.fail:
+    msg: "vm_id is not defined for {{ inventory_hostname }}"
+  when:
+    - vm_state | default('present') == 'present'
+    - vm_id is not defined
+
+- name: Fail if template source is missing
+  ansible.builtin.fail:
+    msg: >-
+      No VM template source is configured. Set `template_vmid` (recommended) or
+      `template_name` in inventories/lab/group_vars/proxmox.yml.
+  when:
+    - vm_state | default('present') == 'present'
+    - vm_provision_template is not defined
+
+- name: Fail if template source matches target VMID
+  ansible.builtin.fail:
+    msg: >-
+      template source ({{ vm_provision_template }}) matches target vm_id ({{ vm_id }})
+      for {{ inventory_hostname }}. Set `template_vmid`/`template_name` to your
+      cloud-init template (for example VMID 9000), not the destination VM ID.
+  when:
+    - vm_state | default('present') == 'present'
+    - vm_id is defined
+    - vm_provision_template is defined
+    - (vm_provision_template | string) == (vm_id | string)
+
+- name: Detect template source type
+  ansible.builtin.set_fact:
+    vm_provision_template_is_vmid: "{{ (vm_provision_template | string) is match('^[0-9]+$') }}"
+  when: vm_state | default('present') == 'present'
+
+- name: Build deterministic cloud-init NIC metadata
+  ansible.builtin.set_fact:
+    vm_provision_nameservers_list: >-
+      {{
+        (
+          (
+            cloud_init_nameservers
+            if cloud_init_nameservers is defined
+            else dns_server
+          )
+          if (
+            (
+              cloud_init_nameservers
+              if cloud_init_nameservers is defined
+              else dns_server
+            ) is string
+          )
+          else (
+            (
+              cloud_init_nameservers
+              if cloud_init_nameservers is defined
+              else dns_server
+            ) | join(',')
+          )
+        )
+        | split(',')
+        | map('trim')
+        | reject('equalto', '')
+        | list
+      }}
+    vm_provision_net0_mac: "{{ '52:54:00:%02x:%02x:%02x' | format((((vm_id | int) // 65536) % 256), (((vm_id | int) // 256) % 256), ((vm_id | int) % 256)) }}"
+    vm_provision_net1_mac: "{{ '52:54:10:%02x:%02x:%02x' | format((((vm_id | int) // 65536) % 256), (((vm_id | int) // 256) % 256), ((vm_id | int) % 256)) }}"
+    vm_provision_cloud_init_network_snippet: "{{ inventory_hostname }}-network-config.yaml"
+    vm_provision_cloud_init_user_snippet: "{{ inventory_hostname }}-user-data.yaml"
+  when: vm_state | default('present') == 'present'
+
+- name: Clone VM from cloud-init template (source VMID)
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ vm_provision_api_host }}"
+    api_user: "{{ vm_provision_api_user }}"
+    api_password: "{{ vm_provision_api_password }}"
+    node: "{{ vm_provision_node }}"
+    clone: "template-{{ vm_provision_template }}"
+    vmid: "{{ vm_provision_template | int }}"
+    newid: "{{ vm_id }}"
+    name: "{{ inventory_hostname_short }}"
+    full: true
+    timeout: 600
+    state: present
+  delegate_to: localhost
+  when:
+    - vm_state | default('present') == 'present'
+    - vm_provision_template_is_vmid
+
+- name: Clone VM from cloud-init template (source name)
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ vm_provision_api_host }}"
+    api_user: "{{ vm_provision_api_user }}"
+    api_password: "{{ vm_provision_api_password }}"
+    node: "{{ vm_provision_node }}"
+    clone: "{{ vm_provision_template }}"
+    newid: "{{ vm_id }}"
+    name: "{{ inventory_hostname_short }}"
+    full: true
+    timeout: 600
+    state: present
+  delegate_to: localhost
+  when:
+    - vm_state | default('present') == 'present'
+    - not vm_provision_template_is_vmid
+
+- name: Pause after clone
+  ansible.builtin.pause:
+    seconds: 10
+  when: vm_state | default('present') == 'present'
+
+- name: Configure VM hardware
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ vm_provision_api_host }}"
+    api_user: "{{ vm_provision_api_user }}"
+    api_password: "{{ vm_provision_api_password }}"
+    node: "{{ vm_provision_node }}"
+    vmid: "{{ vm_id }}"
+    cores: "{{ vm_cores }}"
+    memory: "{{ vm_memory }}"
+    scsihw: "{{ vm_scsihw }}"
+    agent: "enabled={{ vm_agent_enabled }}"
+    update: true
+    timeout: 600
+  delegate_to: localhost
+  register: vm_hw_result
+  retries: 3
+  delay: 15
+  until: vm_hw_result is succeeded
+  when: vm_state | default('present') == 'present'
+
+- name: Resize VM disk
+  community.proxmox.proxmox_disk:
+    api_host: "{{ vm_provision_api_host }}"
+    api_user: "{{ vm_provision_api_user }}"
+    api_password: "{{ vm_provision_api_password }}"
+    vmid: "{{ vm_id }}"
+    disk: scsi0
+    size: "{{ vm_disk_size }}G"
+    state: resized
+    timeout: 600
+  delegate_to: localhost
+  register: disk_resize
+  failed_when:
+    - disk_resize is failed
+    - "'shrinking disks is not supported' not in (disk_resize.msg | default(''))"
+  when: vm_state | default('present') == 'present'
+
+- name: Ensure Proxmox cloud-init snippets directory exists
+  ansible.builtin.file:
+    path: "{{ vm_provision_cloud_init_snippets_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  delegate_to: proxmox-host
+  when: vm_state | default('present') == 'present'
+
+- name: Render cloud-init network config for single-NIC VMs
+  ansible.builtin.template:
+    src: network-config-single-nic.yml.j2
+    dest: "{{ vm_provision_cloud_init_snippets_dir }}/{{ vm_provision_cloud_init_network_snippet }}"
+    owner: root
+    group: root
+    mode: "0644"
+  delegate_to: proxmox-host
+  when:
+    - vm_state | default('present') == 'present'
+    - vm_bridges | length == 1
+
+- name: Render cloud-init network config for dual-NIC VMs
+  ansible.builtin.template:
+    src: network-config-dual-nic.yml.j2
+    dest: "{{ vm_provision_cloud_init_snippets_dir }}/{{ vm_provision_cloud_init_network_snippet }}"
+    owner: root
+    group: root
+    mode: "0644"
+  delegate_to: proxmox-host
+  when:
+    - vm_state | default('present') == 'present'
+    - vm_bridges | length > 1
+
+- name: Render cloud-init user-data
+  ansible.builtin.template:
+    src: user-data.yml.j2
+    dest: "{{ vm_provision_cloud_init_snippets_dir }}/{{ vm_provision_cloud_init_user_snippet }}"
+    owner: root
+    group: root
+    mode: "0644"
+  delegate_to: proxmox-host
+  when: vm_state | default('present') == 'present'
+
+- name: Configure cloud-init for single-NIC VMs
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ vm_provision_api_host }}"
+    api_user: "{{ vm_provision_api_user }}"
+    api_password: "{{ vm_provision_api_password }}"
+    node: "{{ vm_provision_node }}"
+    vmid: "{{ vm_id }}"
+    nameservers: "{{ cloud_init_nameservers | default(dns_server) }}"
+    searchdomains: "{{ domain }}"
+    cicustom: "user={{ vm_provision_cloud_init_storage }}:snippets/{{ vm_provision_cloud_init_user_snippet }},network={{ vm_provision_cloud_init_storage }}:snippets/{{ vm_provision_cloud_init_network_snippet }}"
+    net:
+      net0: "virtio={{ vm_provision_net0_mac | replace(' ', '') }},bridge={{ vm_bridges[0] }}"
+    update: true
+    update_unsafe: true
+    timeout: 600
+  delegate_to: localhost
+  register: vm_cloud_init_single_result
+  retries: 5
+  delay: 15
+  until: vm_cloud_init_single_result is succeeded
+  when:
+    - vm_state | default('present') == 'present'
+    - vm_bridges | length == 1
+
+- name: Configure cloud-init for dual-NIC VMs (router)
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ vm_provision_api_host }}"
+    api_user: "{{ vm_provision_api_user }}"
+    api_password: "{{ vm_provision_api_password }}"
+    node: "{{ vm_provision_node }}"
+    vmid: "{{ vm_id }}"
+    nameservers: "{{ cloud_init_nameservers | default(dns_server) }}"
+    searchdomains: "{{ domain }}"
+    cicustom: "user={{ vm_provision_cloud_init_storage }}:snippets/{{ vm_provision_cloud_init_user_snippet }},network={{ vm_provision_cloud_init_storage }}:snippets/{{ vm_provision_cloud_init_network_snippet }}"
+    net:
+      net0: "virtio={{ vm_provision_net0_mac | replace(' ', '') }},bridge={{ vm_bridges[0] }}"
+      net1: "virtio={{ vm_provision_net1_mac | replace(' ', '') }},bridge={{ vm_bridges[1] }}"
+    update: true
+    update_unsafe: true
+    timeout: 600
+  delegate_to: localhost
+  register: vm_cloud_init_dual_result
+  retries: 10
+  delay: 30
+  until: vm_cloud_init_dual_result is succeeded
+  when:
+    - vm_state | default('present') == 'present'
+    - vm_bridges | length > 1
+
+- name: Pause before start
+  ansible.builtin.pause:
+    seconds: 15
+  when: vm_state | default('present') == 'present'
+
+- name: Start VM
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ vm_provision_api_host }}"
+    api_user: "{{ vm_provision_api_user }}"
+    api_password: "{{ vm_provision_api_password }}"
+    node: "{{ vm_provision_node }}"
+    vmid: "{{ vm_id }}"
+    state: started
+    timeout: 600
+  delegate_to: localhost
+  register: vm_start_result
+  retries: 3
+  delay: 20
+  until: vm_start_result is succeeded
+  when: vm_state | default('present') == 'present'
+
+- name: Wait for SSH port to open
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 22
+    delay: "{{ vm_provision_wait_for_ssh_delay }}"
+    timeout: "{{ vm_provision_wait_for_ssh_timeout }}"
+    connect_timeout: 5
+    sleep: 5
+  delegate_to: localhost
+  when: vm_state | default('present') == 'present'
+
+- name: Wait for VM SSH to accept Ansible connections
+  ansible.builtin.wait_for_connection:
+    delay: 0
+    timeout: "{{ vm_provision_wait_for_ssh_timeout }}"
+    sleep: 5
+    connect_timeout: 5
+  when: vm_state | default('present') == 'present'
+
+- name: Wait for cloud-init to finish first boot
+  ansible.builtin.command:
+    cmd: cloud-init status --wait
+  register: vm_cloud_init_status
+  changed_when: false
+  failed_when: vm_cloud_init_status.rc not in [0, 2]
+  when: vm_state | default('present') == 'present'
+
+- name: Show detailed cloud-init status when warnings were reported
+  ansible.builtin.command:
+    cmd: cloud-init status --long
+  register: vm_cloud_init_status_long
+  changed_when: false
+  failed_when: vm_cloud_init_status_long.rc not in [0, 2]
+  when:
+    - vm_state | default('present') == 'present'
+    - vm_cloud_init_status.rc == 2
+
+- name: Print cloud-init warning details
+  ansible.builtin.debug:
+    msg: "{{ vm_cloud_init_status_long.stdout }}"
+  when:
+    - vm_state | default('present') == 'present'
+    - vm_cloud_init_status.rc == 2
+
+- name: Remove VM (teardown)
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ vm_provision_api_host }}"
+    api_user: "{{ vm_provision_api_user }}"
+    api_password: "{{ vm_provision_api_password }}"
+    node: "{{ vm_provision_node }}"
+    vmid: "{{ vm_id }}"
+    state: absent
+    force: true
+    timeout: 600
+  delegate_to: localhost
+  when: vm_state | default('present') == 'absent'

@@ -1,0 +1,22 @@
+version: 2
+ethernets:
+  primary:
+    match:
+      macaddress: "{{ vm_provision_net0_mac | lower }}"
+{% if vm_provision_single_nic_bootproto == 'dhcp' %}
+    dhcp4: true
+{% else %}
+    dhcp4: false
+    addresses:
+      - "{{ ansible_host }}/24"
+    routes:
+      - to: default
+        via: "{{ gateway }}"
+    nameservers:
+      addresses:
+{% for nameserver in vm_provision_nameservers_list %}
+        - "{{ nameserver }}"
+{% endfor %}
+      search:
+        - "{{ domain }}"
+{% endif %}

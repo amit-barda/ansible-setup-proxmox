@@ -1,0 +1,13 @@
+---
+- name: Provision lab VMs on Proxmox
+  hosts: private_subnet
+  gather_facts: false
+  serial: 1
+
+  pre_tasks:
+    - name: Load Proxmox API credentials
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../inventories/lab/group_vars/proxmox.yml"
+
+  roles:
+    - role: vm_provision

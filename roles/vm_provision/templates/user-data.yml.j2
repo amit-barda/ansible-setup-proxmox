@@ -1,0 +1,9 @@
+#cloud-config
+users:
+  - name: "{{ cloud_init_user }}"
+    shell: /bin/bash
+    groups: "{{ vm_provision_cloud_init_user_groups | join(',') }}"
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys:
+      - "{{ cloud_init_ssh_key }}"

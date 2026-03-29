@@ -1,0 +1,16 @@
+---
+vm_cores: 2
+vm_memory: 2048
+vm_disk_size: 30
+vm_ostype: l26
+vm_scsihw: virtio-scsi-single
+vm_start_on_create: true
+vm_agent_enabled: 1
+vm_provision_cloud_init_storage: local
+vm_provision_cloud_init_snippets_dir: /var/lib/vz/snippets
+vm_provision_single_nic_bootproto: static
+vm_provision_wait_for_ssh_delay: 10
+vm_provision_wait_for_ssh_timeout: 600
+vm_provision_cloud_init_user_groups:
+  - sudo
+  - adm

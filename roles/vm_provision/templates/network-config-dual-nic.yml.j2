@@ -1,0 +1,12 @@
+version: 2
+ethernets:
+  wan:
+    match:
+      macaddress: "{{ vm_provision_net0_mac | lower }}"
+    dhcp4: true
+  lan:
+    match:
+      macaddress: "{{ vm_provision_net1_mac | lower }}"
+    dhcp4: false
+    addresses:
+      - "{{ lan_ip }}/{{ lan_netmask }}"
