@@ -1,0 +1,11 @@
+---
+vm_id: 112
+vm_cores: 4
+vm_memory: 8192
+vm_disk_size: 50
+vm_bridges:
+  - "{{ private_bridge }}"
+
+gitlab_external_url: "http://gitlab.test.local"
+gitlab_registry_url: "http://gitlab.test.local:5050"
+gitlab_initial_root_password: "{{ gitlab_root_password }}"

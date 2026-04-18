@@ -1,0 +1,16 @@
+; Managed by Ansible - do not edit
+$TTL    604800
+@       IN      SOA     dns.{{ bind_zone_name }}. admin.{{ bind_zone_name }}. (
+                     {{ bind_zone_serial }}     ; Serial
+                         604800                 ; Refresh
+                          86400                 ; Retry
+                        2419200                 ; Expire
+                         604800 )               ; Negative Cache TTL
+
+; Name servers
+@       IN      NS      dns.{{ bind_zone_name }}.
+
+; PTR records
+{% for host, info in lab_hosts.items() %}
+{{ info.ip.split('.')[-1] }}      IN      PTR     {{ info.fqdn }}.
+{% endfor %}

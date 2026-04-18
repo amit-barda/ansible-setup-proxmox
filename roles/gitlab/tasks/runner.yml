@@ -1,0 +1,91 @@
+---
+- name: Install Docker for CI builds
+  block:
+    - name: Install docker.io
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Configure Docker insecure registry for GitLab
+      ansible.builtin.copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "insecure-registries": ["gitlab.test.local:5050"]
+          }
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart docker for runner
+
+    - name: Ensure Docker is running
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+- name: Add GitLab Runner APT repository
+  block:
+    - name: Download GitLab Runner repository install script
+      ansible.builtin.get_url:
+        url: "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh"
+        dest: /tmp/gitlab-runner-repo-setup.sh
+        mode: "0755"
+
+    - name: Run GitLab Runner repository setup script
+      ansible.builtin.command: bash /tmp/gitlab-runner-repo-setup.sh
+      changed_when: true
+
+- name: Install gitlab-runner
+  ansible.builtin.apt:
+    name: gitlab-runner
+    state: present
+    update_cache: true
+
+- name: Add gitlab-runner user to docker group
+  ansible.builtin.user:
+    name: gitlab-runner
+    groups: docker
+    append: true
+
+- name: Check if runner is already registered in config
+  ansible.builtin.command: grep -c '\[\[runners\]\]' /etc/gitlab-runner/config.toml
+  register: runner_config_check
+  changed_when: false
+  failed_when: false
+
+- name: Create and register runner
+  when: runner_config_check.stdout | default('0') | int == 0
+  block:
+    - name: Create runner via API
+      ansible.builtin.uri:
+        url: "{{ gitlab_external_url }}/api/v4/user/runners"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_root_token }}"
+        body_format: json
+        body:
+          runner_type: "instance_type"
+          description: "lab-shell-runner"
+          tag_list: "lab,shell"
+        status_code:
+          - 201
+        validate_certs: false
+      register: runner_creation
+
+    - name: Register GitLab Runner
+      ansible.builtin.command: >
+        gitlab-runner register
+        --non-interactive
+        --url "{{ gitlab_external_url }}"
+        --token "{{ runner_creation.json.token }}"
+        --executor "{{ gitlab_runner_executor }}"
+        --description "lab-shell-runner"
+
+- name: Ensure gitlab-runner service is running
+  ansible.builtin.systemd:
+    name: gitlab-runner
+    state: started
+    enabled: true

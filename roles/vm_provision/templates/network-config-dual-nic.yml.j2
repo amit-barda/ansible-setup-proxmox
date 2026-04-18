@@ -1,12 +1,18 @@
+# LAN/WAN chosen by bridge order: net0 MAC = vm_bridges[0], net1 = vm_bridges[1]
 version: 2
+{% set br0 = vm_bridges[0] | string %}
+{% set priv = private_bridge | string %}
+{% set lan_on_net0 = (br0 == priv) %}
+{% set lan_mac = (vm_provision_net0_mac | lower) if lan_on_net0 else (vm_provision_net1_mac | lower) %}
+{% set wan_mac = (vm_provision_net1_mac | lower) if lan_on_net0 else (vm_provision_net0_mac | lower) %}
 ethernets:
-  wan:
-    match:
-      macaddress: "{{ vm_provision_net0_mac | lower }}"
-    dhcp4: true
   lan:
     match:
-      macaddress: "{{ vm_provision_net1_mac | lower }}"
+      macaddress: "{{ lan_mac }}"
     dhcp4: false
     addresses:
       - "{{ lan_ip }}/{{ lan_netmask }}"
+  wan:
+    match:
+      macaddress: "{{ wan_mac }}"
+    dhcp4: true

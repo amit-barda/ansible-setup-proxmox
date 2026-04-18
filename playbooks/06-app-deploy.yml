@@ -1,0 +1,13 @@
+---
+- name: Deploy Flask word service
+  hosts: workstation
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Load vault secrets
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../inventories/lab/group_vars/proxmox.yml"
+
+  roles:
+    - flask_app

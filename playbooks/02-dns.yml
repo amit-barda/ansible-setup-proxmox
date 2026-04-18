@@ -1,0 +1,9 @@
+---
+- name: Configure DNS server (BIND9)
+  hosts: dns
+  become: true
+  gather_facts: true
+
+  roles:
+    - common
+    - bind9

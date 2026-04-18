@@ -1,0 +1,174 @@
+---
+- name: Get developer GitLab token
+  ansible.builtin.command: >
+    gitlab-rails runner "
+    user = User.find_by_username('{{ developer_username }}');
+    token = user.personal_access_tokens.find_or_create_by(name: 'dev-pat') do |t|
+      t.scopes = [:api, :read_repository, :write_repository, :read_registry, :write_registry]
+      t.expires_at = 365.days.from_now
+    end;
+    token.set_token('developer-pat-token');
+    token.save!;
+    puts 'developer-pat-token'
+    "
+  delegate_to: gitlab.test.local
+  register: dev_token_result
+  changed_when: false
+
+- name: Store developer token
+  ansible.builtin.set_fact:
+    dev_gitlab_token: "developer-pat-token"
+
+- name: Create project directory
+  ansible.builtin.file:
+    path: "/home/{{ developer_username }}/word"
+    state: directory
+    owner: "{{ developer_username }}"
+    group: "{{ developer_username }}"
+    mode: "0755"
+
+- name: Copy application files
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/home/{{ developer_username }}/word/{{ item | basename }}"
+    owner: "{{ developer_username }}"
+    group: "{{ developer_username }}"
+    mode: "0644"
+  loop:
+    - app.py
+    - requirements.txt
+    - Dockerfile
+    - .gitlab-ci.yml
+
+- name: Create k8s directory
+  ansible.builtin.file:
+    path: "/home/{{ developer_username }}/word/k8s"
+    state: directory
+    owner: "{{ developer_username }}"
+    group: "{{ developer_username }}"
+    mode: "0755"
+
+- name: Template K8s deployment manifest
+  ansible.builtin.template:
+    src: deployment.yml.j2
+    dest: "/home/{{ developer_username }}/word/k8s/deployment.yml"
+    owner: "{{ developer_username }}"
+    group: "{{ developer_username }}"
+    mode: "0644"
+
+- name: Create GitLab project via API
+  ansible.builtin.uri:
+    url: "http://gitlab.test.local/api/v4/projects"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ dev_gitlab_token }}"
+    body_format: json
+    body:
+      name: word
+      visibility: private
+      initialize_with_readme: false
+    status_code:
+      - 201
+      - 400
+    validate_certs: false
+  register: project_creation
+
+- name: Initialize git repo and push
+  become: true
+  become_user: "{{ developer_username }}"
+  ansible.builtin.shell: |
+    cd /home/{{ developer_username }}/word
+    if [ ! -d .git ]; then
+      git init
+      git remote add origin git@gitlab.test.local:{{ developer_username }}/word.git
+    fi
+    git add -A
+    git commit -m "Initial commit: Flask word service" || true
+    git branch -M main
+    git push -u origin main
+  register: git_push
+  changed_when: "'Everything up-to-date' not in git_push.stderr"
+
+- name: Wait for CI pipeline to start
+  ansible.builtin.uri:
+    url: "http://gitlab.test.local/api/v4/projects/{{ developer_username }}%2Fword/pipelines?ref=main&per_page=1"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ dev_gitlab_token }}"
+    status_code: 200
+    validate_certs: false
+  register: pipeline_check
+  retries: 12
+  delay: 10
+  until: pipeline_check.json | length > 0
+
+- name: Wait for CI pipeline to complete
+  ansible.builtin.uri:
+    url: "http://gitlab.test.local/api/v4/projects/{{ developer_username }}%2Fword/pipelines/{{ pipeline_check.json[0].id }}"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ dev_gitlab_token }}"
+    status_code: 200
+    validate_certs: false
+  register: pipeline_status
+  retries: 30
+  delay: 20
+  until: pipeline_status.json.status in ['success', 'failed']
+  failed_when: pipeline_status.json.status == 'failed'
+
+- name: Configure K3s registry auth for GitLab
+  ansible.builtin.copy:
+    dest: /etc/rancher/k3s/registries.yaml
+    content: "mirrors:\n  \"gitlab.test.local:5050\":\n    endpoint:\n      - \"http://gitlab.test.local:5050\"\nconfigs:\n  \"gitlab.test.local:5050\":\n    auth:\n      username: {{ developer_username }}\n      password: {{ dev_gitlab_token }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  delegate_to: k3s.test.local
+  register: registry_config
+
+- name: Restart K3s to pick up registry auth
+  ansible.builtin.systemd:
+    name: k3s
+    state: restarted
+  delegate_to: k3s.test.local
+  when: registry_config.changed
+
+- name: Wait for K3s to be ready after restart
+  ansible.builtin.command: k3s kubectl get nodes
+  delegate_to: k3s.test.local
+  register: k3s_ready
+  retries: 12
+  delay: 10
+  until: "'Ready' in k3s_ready.stdout"
+  changed_when: false
+  when: registry_config.changed
+
+- name: Deploy word app to K3s
+  ansible.builtin.command: kubectl apply -f /home/{{ developer_username }}/word/k8s/deployment.yml
+  become: true
+  become_user: "{{ developer_username }}"
+  changed_when: true
+
+- name: Force pod recreation for fresh image pull
+  ansible.builtin.command: kubectl rollout restart deployment/word
+  become: true
+  become_user: "{{ developer_username }}"
+  changed_when: true
+
+- name: Wait for deployment to be ready
+  ansible.builtin.command: kubectl rollout status deployment/word --timeout=180s
+  become: true
+  become_user: "{{ developer_username }}"
+  register: rollout
+  changed_when: false
+
+- name: Verify running pods
+  ansible.builtin.command: kubectl get pods -l app=word -o wide
+  become: true
+  become_user: "{{ developer_username }}"
+  register: word_pods
+  changed_when: false
+
+- name: Display pod status
+  ansible.builtin.debug:
+    msg: "{{ word_pods.stdout }}"

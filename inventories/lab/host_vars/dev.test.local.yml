@@ -1,0 +1,11 @@
+---
+vm_id: 113
+vm_cores: 2
+vm_memory: 4096
+vm_disk_size: 30
+vm_bridges:
+  - "{{ private_bridge }}"
+
+developer_username: developer
+developer_fullname: "Lab Developer"
+developer_email: "developer@test.local"

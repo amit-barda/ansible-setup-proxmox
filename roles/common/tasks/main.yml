@@ -1,0 +1,66 @@
+---
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname_short }}"
+
+- name: Build /etc/hosts with all lab hosts
+  ansible.builtin.copy:
+    dest: /etc/hosts
+    content: |
+      127.0.0.1 localhost
+      127.0.1.1 {{ inventory_hostname_short }}
+
+      {% for host, info in lab_hosts.items() %}
+      {{ info.ip }} {{ info.fqdn }} {{ host }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: "0644"
+
+# This host is the future BIND server; cloud-init may point resolv at ansible_host (10.20.30.250)
+# before named exists — apt cannot resolve archive.ubuntu.com. Use public DNS only for bootstrap.
+- name: Temporary resolv.conf for DNS VM before BIND is installed
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    content: |
+      nameserver 8.8.8.8
+      nameserver 1.1.1.1
+    owner: root
+    group: root
+    mode: "0644"
+    follow: false
+  when: "'dns' in group_names"
+
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name: "{{ common_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 300
+
+- name: Enable and start qemu-guest-agent
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+    state: started
+    enabled: true
+
+- name: Disable systemd-resolved
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: stopped
+    enabled: false
+  ignore_errors: true
+
+- name: Remove systemd-resolved stub symlink
+  ansible.builtin.file:
+    path: /etc/resolv.conf
+    state: absent
+
+- name: Configure DNS resolver
+  ansible.builtin.template:
+    src: resolv.conf.j2
+    dest: /etc/resolv.conf
+    owner: root
+    group: root
+    mode: "0644"

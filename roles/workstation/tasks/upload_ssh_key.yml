@@ -1,0 +1,45 @@
+---
+- name: Get developer personal access token from GitLab
+  ansible.builtin.command: >
+    gitlab-rails runner "
+    user = User.find_by_username('{{ developer_username }}');
+    token = user.personal_access_tokens.find_or_create_by(name: 'dev-pat') do |t|
+      t.scopes = [:api, :read_repository, :write_repository, :read_registry, :write_registry]
+      t.expires_at = 365.days.from_now
+    end;
+    token.set_token('developer-pat-token');
+    token.save!;
+    puts 'developer-pat-token'
+    "
+  delegate_to: gitlab.test.local
+  register: developer_token_result
+  changed_when: false
+
+- name: Store developer token
+  ansible.builtin.set_fact:
+    developer_gitlab_token: "developer-pat-token"
+
+- name: Check existing SSH keys on GitLab for developer
+  ansible.builtin.uri:
+    url: "http://gitlab.test.local/api/v4/user/keys"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ developer_gitlab_token }}"
+    status_code: 200
+    validate_certs: false
+  register: existing_keys
+
+- name: Upload SSH public key to GitLab
+  ansible.builtin.uri:
+    url: "http://gitlab.test.local/api/v4/user/keys"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ developer_gitlab_token }}"
+    body_format: json
+    body:
+      title: "dev-workstation-key"
+      key: "{{ developer_pubkey_content }}"
+    status_code:
+      - 201
+    validate_certs: false
+  when: existing_keys.json | selectattr('title', 'equalto', 'dev-workstation-key') | list | length == 0

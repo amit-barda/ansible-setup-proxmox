@@ -1,0 +1,6 @@
+---
+vm_provision_api_host: "{{ proxmox_api_host }}"
+vm_provision_api_user: "{{ proxmox_api_user }}"
+vm_provision_api_password: "{{ proxmox_api_password }}"
+vm_provision_node: "{{ proxmox_node }}"
+vm_provision_template: "{{ template_vmid | default(template_name, true) }}"

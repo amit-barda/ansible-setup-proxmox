@@ -1,0 +1,56 @@
+---
+- name: Create developer user
+  ansible.builtin.user:
+    name: "{{ workstation_developer_user }}"
+    comment: "{{ workstation_developer_fullname }}"
+    shell: /bin/bash
+    create_home: true
+    groups:
+      - docker
+      - sudo
+    append: true
+    generate_ssh_key: true
+    ssh_key_type: ed25519
+    ssh_key_comment: "{{ workstation_developer_email }}"
+
+- name: Read developer public key
+  ansible.builtin.slurp:
+    src: "/home/{{ workstation_developer_user }}/.ssh/id_ed25519.pub"
+  register: developer_ssh_pubkey
+
+- name: Store developer public key as fact
+  ansible.builtin.set_fact:
+    developer_pubkey_content: "{{ developer_ssh_pubkey.content | b64decode | trim }}"
+
+- name: Configure git for developer
+  become: true
+  become_user: "{{ workstation_developer_user }}"
+  community.general.git_config:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    scope: global
+  loop:
+    - { name: "user.name", value: "{{ workstation_developer_fullname }}" }
+    - { name: "user.email", value: "{{ workstation_developer_email }}" }
+
+# ssh-keyscan must run ON the workstation (dev), not on the Ansible controller — controller may not resolve/route to gitlab.test.local
+- name: Scan GitLab SSH host keys from workstation
+  ansible.builtin.command:
+    cmd: ssh-keyscan -t ed25519,rsa gitlab.test.local
+  register: gitlab_ssh_keyscan
+  changed_when: false
+
+- name: Fail if GitLab SSH host keys could not be fetched
+  ansible.builtin.fail:
+    msg: "ssh-keyscan failed for gitlab.test.local from this host — check DNS (dig gitlab.test.local) and that GitLab is listening on port 22."
+  when: gitlab_ssh_keyscan.rc != 0
+
+- name: Add GitLab to known_hosts
+  become: true
+  become_user: "{{ workstation_developer_user }}"
+  ansible.builtin.known_hosts:
+    name: gitlab.test.local
+    key: "{{ gitlab_ssh_keyscan.stdout }}"
+    path: "/home/{{ workstation_developer_user }}/.ssh/known_hosts"
+    state: present
+  when: gitlab_ssh_keyscan.stdout | length > 0

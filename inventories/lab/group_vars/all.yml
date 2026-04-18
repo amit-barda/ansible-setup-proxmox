@@ -1,0 +1,33 @@
+---
+domain: test.local
+subnet: 10.20.30.0/24
+subnet_prefix: "10.20.30"
+gateway: 10.20.30.1
+dns_server: 10.20.30.250
+private_bridge: vmbr1
+internet_bridge: vmbr0
+
+# Used by roles/router netplan on WAN (override per env). See router_wan_nameservers in role defaults.
+router_upstream_nameservers:
+  - 1.1.1.1
+  - 8.8.8.8
+
+lab_hosts:
+  router:
+    ip: 10.20.30.1
+    fqdn: router.test.local
+  dns:
+    ip: 10.20.30.250
+    fqdn: dns.test.local
+  gitlab:
+    ip: 10.20.30.100
+    fqdn: gitlab.test.local
+  dev:
+    ip: 10.20.30.99
+    fqdn: dev.test.local
+  k3s:
+    ip: 10.20.30.200
+    fqdn: k3s.test.local
+
+cloud_init_user: ubuntu
+cloud_init_ssh_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"

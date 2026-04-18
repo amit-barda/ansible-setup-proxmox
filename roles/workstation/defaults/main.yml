@@ -1,0 +1,13 @@
+---
+workstation_developer_user: "{{ developer_username }}"
+workstation_developer_fullname: "{{ developer_fullname }}"
+workstation_developer_email: "{{ developer_email }}"
+workstation_developer_password: "{{ developer_password }}"
+
+workstation_packages:
+  - git
+  - make
+  - jq
+  - vim
+  - tmux
+  - unzip

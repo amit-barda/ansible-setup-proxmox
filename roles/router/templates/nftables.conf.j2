@@ -1,0 +1,35 @@
+#!/usr/sbin/nft -f
+# Managed by Ansible - do not edit
+
+flush ruleset
+
+table inet filter {
+    chain input {
+        type filter hook input priority 0; policy accept;
+    }
+
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+
+        # Allow established/related connections
+        ct state established,related accept
+
+        # Allow LAN to WAN forwarding
+        iifname "{{ router_lan_interface }}" oifname "{{ router_wan_interface }}" accept
+
+        # Allow WAN to LAN for established connections (already covered above)
+    }
+
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}
+
+table ip nat {
+    chain postrouting {
+        type nat hook postrouting priority 100; policy accept;
+
+        # Masquerade traffic from private subnet going out WAN
+        oifname "{{ router_wan_interface }}" ip saddr {{ router_lan_network }} masquerade
+    }
+}

@@ -1,0 +1,10 @@
+---
+- name: Reconfigure gitlab
+  ansible.builtin.command: gitlab-ctl reconfigure
+  async: 600
+  poll: 15
+
+- name: Restart docker for runner
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted

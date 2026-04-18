@@ -1,0 +1,9 @@
+---
+- name: Configure router VM
+  hosts: router
+  become: true
+  gather_facts: true
+
+  roles:
+    - common
+    - router

@@ -1,0 +1,18 @@
+---
+# Do not point cloud-init DNS at this host (10.20.30.250) before BIND exists
+cloud_init_nameservers: "8.8.8.8"
+
+vm_id: 111
+vm_cores: 2
+vm_memory: 2048
+vm_disk_size: 30
+vm_bridges:
+  - "{{ private_bridge }}"
+
+bind_forwarders:
+  - 8.8.8.8
+  - 1.1.1.1
+
+bind_zone_name: "{{ domain }}"
+bind_zone_serial: 2024010101
+bind_reverse_zone: "30.20.10.in-addr.arpa"

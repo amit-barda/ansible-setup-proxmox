@@ -1,0 +1,88 @@
+---
+- name: Install GitLab dependencies
+  ansible.builtin.apt:
+    name:
+      - curl
+      - openssh-server
+      - ca-certificates
+      - tzdata
+      - perl
+      - postfix
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Check if GitLab is already installed
+  ansible.builtin.stat:
+    path: /usr/bin/gitlab-ctl
+  register: gitlab_installed
+
+- name: Add GitLab APT repository
+  when: not gitlab_installed.stat.exists
+  block:
+    - name: Download GitLab repository install script
+      ansible.builtin.get_url:
+        url: "https://packages.gitlab.com/install/repositories/gitlab/{{ gitlab_edition }}/script.deb.sh"
+        dest: /tmp/gitlab-repo-setup.sh
+        mode: "0755"
+
+    - name: Run GitLab repository setup script
+      ansible.builtin.command: bash /tmp/gitlab-repo-setup.sh
+      changed_when: true
+
+- name: Install GitLab CE
+  ansible.builtin.apt:
+    name: "{{ gitlab_edition }}"
+    state: present
+    update_cache: true
+  environment:
+    EXTERNAL_URL: "{{ gitlab_external_url }}"
+    GITLAB_ROOT_PASSWORD: "{{ gitlab_initial_root_password }}"
+
+- name: Template GitLab configuration
+  ansible.builtin.template:
+    src: gitlab.rb.j2
+    dest: /etc/gitlab/gitlab.rb
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Reconfigure gitlab
+
+- name: Flush handlers to reconfigure GitLab now
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for GitLab to be fully operational
+  ansible.builtin.uri:
+    url: "{{ gitlab_external_url }}/users/sign_in"
+    status_code: 200
+    validate_certs: false
+  register: gitlab_health
+  retries: 30
+  delay: 20
+  until: gitlab_health.status == 200
+
+- name: Get root personal access token
+  ansible.builtin.command: >
+    gitlab-rails runner "
+    token = User.find_by_username('root').personal_access_tokens.find_or_create_by(name: 'ansible-token') do |t|
+      t.scopes = [:api, :read_user, :read_repository, :write_repository, :read_registry, :write_registry]
+      t.expires_at = 365.days.from_now
+    end;
+    token.set_token('ansible-root-pat-token');
+    token.save!;
+    puts 'ansible-root-pat-token'
+    "
+  register: gitlab_root_token_result
+  changed_when: false
+
+- name: Store root token as fact
+  ansible.builtin.set_fact:
+    gitlab_root_token: "ansible-root-pat-token"
+
+- name: Create developer user via API
+  ansible.builtin.include_tasks: create_user.yml
+
+- name: Install and register GitLab Runner
+  ansible.builtin.include_tasks: runner.yml

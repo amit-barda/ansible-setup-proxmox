@@ -1,0 +1,50 @@
+---
+- name: Install router packages
+  ansible.builtin.apt:
+    name:
+      - nftables
+      - iptables
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_set: true
+    state: present
+    reload: true
+
+- name: Configure router netplan
+  ansible.builtin.template:
+    src: netplan-router.yml.j2
+    dest: /etc/netplan/01-router.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Apply netplan
+
+- name: Remove default netplan configs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/netplan/50-cloud-init.yaml
+    - /etc/netplan/00-installer-config.yaml
+  notify: Apply netplan
+
+- name: Configure nftables rules
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart nftables
+
+- name: Enable and start nftables
+  ansible.builtin.systemd:
+    name: nftables
+    state: started
+    enabled: true

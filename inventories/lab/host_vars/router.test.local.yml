@@ -1,0 +1,20 @@
+---
+vm_id: 118
+vm_cores: 2
+vm_memory: 2048
+vm_disk_size: 30
+# net0→ens18 = LAN (vmbr1); net1→ens19 = WAN (vmbr0)
+vm_bridges:
+  - "{{ private_bridge }}"
+  - "{{ internet_bridge }}"
+
+# ens18 = LAN (static, no default route). ens19 = WAN (DHCP provides default route + DNS).
+lan_interface: ens18
+wan_interface: ens19
+wan_mode: dhcp
+lan_ip: 10.20.30.1
+lan_netmask: 24
+lan_network: 10.20.30.0/24
+
+# Optional post-apply ping from router to a lab VM (e.g. after k3s exists):
+# router_verify_lan_target: "{{ lab_hosts.k3s.ip }}"

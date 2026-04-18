@@ -1,0 +1,16 @@
+---
+- name: Install workstation packages
+  ansible.builtin.apt:
+    name: "{{ workstation_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install Docker CE
+  ansible.builtin.include_tasks: docker.yml
+
+- name: Configure developer user
+  ansible.builtin.include_tasks: developer.yml
+
+- name: Upload SSH key to GitLab
+  ansible.builtin.include_tasks: upload_ssh_key.yml

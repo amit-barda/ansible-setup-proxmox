@@ -1,0 +1,7 @@
+---
+router_wan_interface: "{{ wan_interface }}"
+router_lan_interface: "{{ lan_interface }}"
+router_lan_ip: "{{ lan_ip }}"
+router_lan_netmask: "{{ lan_netmask }}"
+router_lan_network: "{{ lan_network }}"
+router_wan_mode: "{{ wan_mode }}"

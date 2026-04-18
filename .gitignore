@@ -1,0 +1,13 @@
+*.retry
+*.pyc
+__pycache__/
+.vagrant/
+*.log
+*.swp
+*.swo
+*~
+files/ubuntu-22.04-cloud.img
+/tmp/
+.fact_cache/
+*.vault_pass
+.env

@@ -1,0 +1,39 @@
+---
+- name: Check if developer user exists
+  ansible.builtin.uri:
+    url: "{{ gitlab_external_url }}/api/v4/users?username={{ gitlab_developer_username }}"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_root_token }}"
+    status_code: 200
+    validate_certs: false
+  register: developer_user_check
+
+- name: Create developer user
+  ansible.builtin.uri:
+    url: "{{ gitlab_external_url }}/api/v4/users"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_root_token }}"
+    body_format: json
+    body:
+      email: "{{ gitlab_developer_email }}"
+      password: "{{ gitlab_developer_password }}"
+      username: "{{ gitlab_developer_username }}"
+      name: "{{ gitlab_developer_name }}"
+      skip_confirmation: true
+      can_create_group: true
+      can_create_project: true
+    status_code:
+      - 201
+    validate_certs: false
+  register: developer_user_created
+  when: developer_user_check.json | length == 0
+
+- name: Store developer user ID
+  ansible.builtin.set_fact:
+    gitlab_developer_user_id: >-
+      {{ (developer_user_check.json | length > 0) | ternary(
+        developer_user_check.json[0].id,
+        developer_user_created.json.id
+      ) }}

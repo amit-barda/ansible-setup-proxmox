@@ -1,0 +1,30 @@
+// Managed by Ansible - do not edit
+
+options {
+    directory "/var/cache/bind";
+
+    forwarders {
+{% for forwarder in bind_forwarders %}
+        {{ forwarder }};
+{% endfor %}
+    };
+
+    listen-on { any; };
+    listen-on-v6 { none; };
+    allow-query { any; };
+    allow-recursion { any; };
+
+    dnssec-validation auto;
+};
+
+zone "{{ bind_zone_name }}" {
+    type master;
+    file "{{ bind_zone_file }}";
+    allow-update { none; };
+};
+
+zone "{{ bind_reverse_zone }}" {
+    type master;
+    file "{{ bind_reverse_zone_file }}";
+    allow-update { none; };
+};

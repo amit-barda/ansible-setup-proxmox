@@ -1,0 +1,26 @@
+---
+private_interface: ens18
+private_ip: "{{ ansible_host }}"
+private_netmask: 255.255.255.0
+private_gateway: "{{ gateway }}"
+private_dns: "{{ dns_server }}"
+private_domain: "{{ domain }}"
+
+# --- SSH / ProxyJump (recurring "No route to host" / port 65535) ---
+# 1) On Proxmox, vmbr1 MUST have a host IP, e.g.:
+#      ip addr add 10.20.30.254/24 dev vmbr1
+#    Persist it in /etc/network/interfaces or it disappears after reboot.
+# 2) Each lab VM must have its 10.20.30.x on a NIC attached to vmbr1 (verify: ping from Proxmox).
+# 3) If you run ansible-playbook ON the Proxmox node itself, set lab_ssh_proxy_jump: ""
+#    (direct SSH to 10.20.30.x — no jump). Using ProxyJump to the same host adds failure modes.
+# 4) ansible.cfg uses forks=1 so all connections do not hammer one bastion at once.
+#
+# Default to direct SSH. If you run the controller from a laptop/workstation that
+# cannot route to 10.20.30.0/24, override this in your own inventory or vault with
+# something like: lab_ssh_proxy_jump: "root@192.168.1.13"
+lab_ssh_proxy_jump: ""
+
+ansible_ssh_common_args: >-
+  {{ '-o StrictHostKeyChecking=no'
+     ~ (' -o ProxyJump=' ~ lab_ssh_proxy_jump
+        if (lab_ssh_proxy_jump | default('') | trim | length) > 0 else '') }}

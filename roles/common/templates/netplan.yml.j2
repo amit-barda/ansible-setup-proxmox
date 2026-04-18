@@ -1,0 +1,16 @@
+# Managed by Ansible - do not edit
+network:
+  version: 2
+  ethernets:
+    {{ private_interface }}:
+      dhcp4: false
+      addresses:
+        - {{ ansible_host }}/24
+      routes:
+        - to: default
+          via: {{ gateway }}
+      nameservers:
+        search:
+          - {{ domain }}
+        addresses:
+          - {{ dns_server }}

@@ -1,0 +1,12 @@
+---
+common_packages:
+  - curl
+  - wget
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - apt-transport-https
+  - software-properties-common
+  - qemu-guest-agent
+  - dnsutils
+  - iputils-ping

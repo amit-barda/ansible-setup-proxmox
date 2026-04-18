@@ -1,0 +1,18 @@
+---
+- name: Install K3s single-node cluster
+  hosts: k3s
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Load vault secrets
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../inventories/lab/group_vars/proxmox.yml"
+
+    - name: Load dev workstation vars
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../inventories/lab/host_vars/dev.test.local.yml"
+
+  roles:
+    - common
+    - k3s

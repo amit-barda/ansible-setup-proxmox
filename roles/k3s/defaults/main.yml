@@ -1,0 +1,6 @@
+---
+k3s_install_url: "https://get.k3s.io"
+k3s_tls_san: "k3s.test.local"
+k3s_cluster_dns: "{{ dns_server }}"
+k3s_kubeconfig_mode: "644"
+k3s_kubeconfig_src: "/etc/rancher/k3s/k3s.yaml"

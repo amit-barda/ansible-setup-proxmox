@@ -1,0 +1,12 @@
+---
+gitlab_edition: "gitlab-ce"
+gitlab_external_url: "http://gitlab.test.local"
+gitlab_registry_url: "http://gitlab.test.local:5050"
+gitlab_initial_root_password: "{{ gitlab_root_password }}"
+
+gitlab_runner_executor: "shell"
+
+gitlab_developer_username: "developer"
+gitlab_developer_name: "Lab Developer"
+gitlab_developer_email: "developer@test.local"
+gitlab_developer_password: "{{ developer_password }}"

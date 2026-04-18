@@ -1,0 +1,19 @@
+# Managed by Ansible - do not edit
+network:
+  version: 2
+  ethernets:
+    {{ router_wan_interface }}:
+{% if router_wan_mode == 'dhcp' %}
+      dhcp4: true
+{% else %}
+      dhcp4: false
+      addresses:
+        - {{ router_wan_ip }}/{{ router_wan_netmask }}
+      routes:
+        - to: default
+          via: {{ router_wan_gateway }}
+{% endif %}
+    {{ router_lan_interface }}:
+      dhcp4: false
+      addresses:
+        - {{ router_lan_ip }}/{{ router_lan_netmask }}

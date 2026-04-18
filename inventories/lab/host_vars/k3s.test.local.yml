@@ -1,0 +1,11 @@
+---
+vm_id: 114
+vm_cores: 4
+vm_memory: 4096
+vm_disk_size: 40
+vm_bridges:
+  - "{{ private_bridge }}"
+
+k3s_version: ""
+k3s_tls_san: k3s.test.local
+k3s_cluster_dns: "{{ dns_server }}"

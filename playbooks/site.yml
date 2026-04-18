@@ -1,0 +1,127 @@
+---
+- name: "Stage 0: Provision VMs"
+  ansible.builtin.import_playbook: 00-provision-vms.yml
+  tags:
+    - provision
+    - infra
+
+- name: "Stage 1: Configure Router"
+  ansible.builtin.import_playbook: 01-router.yml
+  tags:
+    - router
+    - network
+
+- name: "Stage 2: Configure DNS"
+  ansible.builtin.import_playbook: 02-dns.yml
+  tags:
+    - dns
+    - network
+
+- name: "Stage 3: Install GitLab"
+  ansible.builtin.import_playbook: 03-gitlab.yml
+  tags:
+    - gitlab
+    - services
+
+- name: "Stage 4: Configure Workstation"
+  ansible.builtin.import_playbook: 04-workstation.yml
+  tags:
+    - workstation
+    - services
+
+- name: "Stage 5: Install K3s"
+  ansible.builtin.import_playbook: 05-k3s.yml
+  tags:
+    - k3s
+    - services
+
+- name: "Stage 6: Deploy Flask App"
+  ansible.builtin.import_playbook: 06-app-deploy.yml
+  tags:
+    - app
+    - deploy
+
+- name: "End-to-End Validation"
+  hosts: private_subnet
+  become: true
+  gather_facts: false
+  tags:
+    - validate
+    - smoke
+
+  pre_tasks:
+    - name: Ensure dig and ping available for validation
+      ansible.builtin.apt:
+        name:
+          - dnsutils
+          - iputils-ping
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+  tasks:
+    - name: "Validate: DNS resolution for all lab hosts"
+      ansible.builtin.command: "dig @{{ dns_server }} {{ item.value.fqdn }} +short"
+      loop: "{{ lab_hosts | dict2items }}"
+      register: dns_results
+      changed_when: false
+      failed_when: item.value.ip not in dns_results.stdout
+
+    - name: "Validate: Internet connectivity via NAT"
+      ansible.builtin.command: ping -c 2 -W 5 8.8.8.8
+      changed_when: false
+
+    - name: "Validate: GitLab HTTP reachable"
+      ansible.builtin.uri:
+        url: "http://gitlab.test.local/users/sign_in"
+        status_code: 200
+        validate_certs: false
+      run_once: true
+
+    - name: "Validate: GitLab Container Registry"
+      ansible.builtin.uri:
+        url: "http://gitlab.test.local:5050/v2/"
+        status_code:
+          - 200
+          - 401
+        validate_certs: false
+      run_once: true
+
+    - name: "Validate: K3s node is Ready"
+      ansible.builtin.command: kubectl get nodes --no-headers
+      delegate_to: k3s.test.local
+      register: k3s_nodes
+      changed_when: false
+      failed_when: "'Ready' not in k3s_nodes.stdout"
+      run_once: true
+
+    - name: "Validate: Word app deployment has 3 replicas"
+      ansible.builtin.command: kubectl get deployment word -o jsonpath='{.status.readyReplicas}'
+      delegate_to: k3s.test.local
+      register: word_replicas
+      changed_when: false
+      failed_when: word_replicas.stdout != "3"
+      run_once: true
+
+    - name: "Validate: Word service responds"
+      ansible.builtin.uri:
+        url: "http://k3s.test.local:30500/"
+        status_code: 200
+        validate_certs: false
+      run_once: true
+      register: word_response
+
+    - name: Display validation summary
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          END-TO-END VALIDATION PASSED
+          ========================================
+          DNS:      All hosts resolve correctly
+          Internet: NAT routing functional
+          GitLab:   HTTP and Container Registry up
+          K3s:      Node Ready, 3/3 word replicas
+          App:      Word service responding
+          Word:     {{ word_response.json.word }}
+          ========================================
+      run_once: true
